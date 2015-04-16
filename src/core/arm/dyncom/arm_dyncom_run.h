@@ -26,7 +26,8 @@ void switch_mode(ARMul_State* core, uint32_t mode);
 // two bytes in size. Thus we don't need to worry about ThumbEE
 // or Thumb-2 where instructions can be 4 bytes in length.
 static inline u32 GET_INST_SIZE(ARMul_State* core) {
-    return core->TFlag? 2 : 4;
+    //return core->TFlag? 2 : 4;
+	return 4 - (core->TFlag << 1);
 }
 
 /**
@@ -40,7 +41,9 @@ static inline u32 GET_INST_SIZE(ARMul_State* core) {
  *         If the PC is not being read, then the value stored in the register is returned.
  */
 static inline u32 CHECK_READ_REG15_WA(ARMul_State* core, int Rn) {
-    return (Rn == 15) ? ((core->Reg[15] & ~0x3) + GET_INST_SIZE(core) * 2) : core->Reg[Rn];
+    //return (Rn == 15) ? ((core->Reg[15] & ~0x3) + GET_INST_SIZE(core) * 2) : core->Reg[Rn];
+	auto Rn15 = (Rn + 1) >> 4;
+	return (core->Reg[Rn] & ~(Rn15 | (Rn15 << 1))) + ((GET_INST_SIZE(core) << 1) & ~(Rn15 - 1));
 }
 
 /**
@@ -53,5 +56,7 @@ static inline u32 CHECK_READ_REG15_WA(ARMul_State* core, int Rn) {
  *         If the PC is not being read, then the values stored in the register is returned.
  */
 static inline u32 CHECK_READ_REG15(ARMul_State* core, int Rn) {
-    return (Rn == 15) ? ((core->Reg[15] & ~0x1) + GET_INST_SIZE(core) * 2) : core->Reg[Rn];
+    //return (Rn == 15) ? ((core->Reg[15] & ~0x1) + GET_INST_SIZE(core) * 2) : core->Reg[Rn];
+	auto Rn15 = (Rn + 1) >> 4;
+	return (core->Reg[Rn] & ~(Rn15)) + ((GET_INST_SIZE(core) << 1) & ~(Rn15 - 1));
 }
