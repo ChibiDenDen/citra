@@ -155,11 +155,10 @@ static void ProcessShaderCode(VertexShaderState& state) {
             }
         };
 
-		auto info = instr.opcode.Value().GetInfo();
-		switch (info.type) {
+        switch (instr.opcode.Value().GetInfo().type) {
         case OpCode::Type::Arithmetic:
         {
-			bool is_inverted = 0 != (info.subtype & OpCode::Info::SrcInversed);
+            bool is_inverted = 0 != (instr.opcode.Value().GetInfo().subtype & OpCode::Info::SrcInversed);
             // TODO: We don't really support this properly: For instance, the address register
             //       offset needs to be applied to SRC2 instead, etc.
             //       For now, we just abort in this situation.
@@ -569,23 +568,22 @@ OutputVertex RunShader(const InputVertex& input, int num_attributes) {
     const auto& attribute_register_map = registers.vs_input_register_map;
     float24 dummy_register;
     boost::fill(state.input_register_table, &dummy_register);
-    if(num_attributes > 0) {state.input_register_table[attribute_register_map.attribute0_register] = &input.attr[0].x;
-    if(num_attributes > 1) {state.input_register_table[attribute_register_map.attribute1_register] = &input.attr[1].x;
-    if(num_attributes > 2) {state.input_register_table[attribute_register_map.attribute2_register] = &input.attr[2].x;
-    if(num_attributes > 3) {state.input_register_table[attribute_register_map.attribute3_register] = &input.attr[3].x;
-    if(num_attributes > 4) {state.input_register_table[attribute_register_map.attribute4_register] = &input.attr[4].x;
-    if(num_attributes > 5) {state.input_register_table[attribute_register_map.attribute5_register] = &input.attr[5].x;
-    if(num_attributes > 6) {state.input_register_table[attribute_register_map.attribute6_register] = &input.attr[6].x;
-    if(num_attributes > 7) {state.input_register_table[attribute_register_map.attribute7_register] = &input.attr[7].x;
-    if(num_attributes > 8) {state.input_register_table[attribute_register_map.attribute8_register] = &input.attr[8].x;
-    if(num_attributes > 9) {state.input_register_table[attribute_register_map.attribute9_register] = &input.attr[9].x;
-    if(num_attributes > 10){ state.input_register_table[attribute_register_map.attribute10_register] = &input.attr[10].x;
-    if(num_attributes > 11){ state.input_register_table[attribute_register_map.attribute11_register] = &input.attr[11].x;
-    if(num_attributes > 12){ state.input_register_table[attribute_register_map.attribute12_register] = &input.attr[12].x;
-    if(num_attributes > 13){ state.input_register_table[attribute_register_map.attribute13_register] = &input.attr[13].x;
-    if(num_attributes > 14){ state.input_register_table[attribute_register_map.attribute14_register] = &input.attr[14].x;
-    if(num_attributes > 15){ state.input_register_table[attribute_register_map.attribute15_register] = &input.attr[15].x;
-	}}}}}}}}}}}}}}}}
+    if(num_attributes > 0) state.input_register_table[attribute_register_map.attribute0_register] = &input.attr[0].x;
+    if(num_attributes > 1) state.input_register_table[attribute_register_map.attribute1_register] = &input.attr[1].x;
+    if(num_attributes > 2) state.input_register_table[attribute_register_map.attribute2_register] = &input.attr[2].x;
+    if(num_attributes > 3) state.input_register_table[attribute_register_map.attribute3_register] = &input.attr[3].x;
+    if(num_attributes > 4) state.input_register_table[attribute_register_map.attribute4_register] = &input.attr[4].x;
+    if(num_attributes > 5) state.input_register_table[attribute_register_map.attribute5_register] = &input.attr[5].x;
+    if(num_attributes > 6) state.input_register_table[attribute_register_map.attribute6_register] = &input.attr[6].x;
+    if(num_attributes > 7) state.input_register_table[attribute_register_map.attribute7_register] = &input.attr[7].x;
+    if(num_attributes > 8) state.input_register_table[attribute_register_map.attribute8_register] = &input.attr[8].x;
+    if(num_attributes > 9) state.input_register_table[attribute_register_map.attribute9_register] = &input.attr[9].x;
+    if(num_attributes > 10) state.input_register_table[attribute_register_map.attribute10_register] = &input.attr[10].x;
+    if(num_attributes > 11) state.input_register_table[attribute_register_map.attribute11_register] = &input.attr[11].x;
+    if(num_attributes > 12) state.input_register_table[attribute_register_map.attribute12_register] = &input.attr[12].x;
+    if(num_attributes > 13) state.input_register_table[attribute_register_map.attribute13_register] = &input.attr[13].x;
+    if(num_attributes > 14) state.input_register_table[attribute_register_map.attribute14_register] = &input.attr[14].x;
+    if(num_attributes > 15) state.input_register_table[attribute_register_map.attribute15_register] = &input.attr[15].x;
 
     state.conditional_code[0] = false;
     state.conditional_code[1] = false;

@@ -247,11 +247,10 @@ static void LnSWoUB(ImmediateOffset)(ARMul_State* cpu, unsigned int inst, unsign
     unsigned int Rn = BITS(inst, 16, 19);
     unsigned int addr;
 
-    //if (U_BIT)
-    //    addr = CHECK_READ_REG15_WA(cpu, Rn) + OFFSET_12;
-    //else
-    //    addr = CHECK_READ_REG15_WA(cpu, Rn) - OFFSET_12;
-	addr = CHECK_READ_REG15_WA(cpu, Rn) + (OFFSET_12 ^ (U_BIT - 1)) + (U_BIT ^ 1);
+    if (U_BIT)
+        addr = CHECK_READ_REG15_WA(cpu, Rn) + OFFSET_12;
+    else
+        addr = CHECK_READ_REG15_WA(cpu, Rn) - OFFSET_12;
 
     virt_addr = addr;
 }
@@ -1127,22 +1126,6 @@ int CondPassed(ARMul_State* cpu, unsigned int cond) {
     #define CFLAG        cpu->CFlag
     #define VFLAG        cpu->VFlag
 
-	//uint8_t bits =
-	//	(ZFLAG << 0) | // EQ, NE
-	//	(CFLAG << 1) | // CS, CC
-	//	(NFLAG << 2) | // MI, PL
-	//	(VFLAG << 3) | // VS, VC
-	//	((CFLAG & ~ZFLAG) << 4) | // HI, LS
-	//	((NFLAG ^ VFLAG ^ 1) << 5) | // GE, LT
-	//	(((NFLAG ^ VFLAG ^ 1) & ~ZFLAG) << 6) | // GT, LE
-	//	(1 << 7);
-	// return ((bits >> (cond >> 1)) & 1) ^ (cond & 1) ^ ((cond + 1) >> 4);
-
-	uint8_t bits[8] = { ZFLAG, CFLAG, NFLAG, VFLAG, CFLAG & ~ZFLAG, NFLAG ^ VFLAG ^ 1, ~ZFLAG, 1 };
-	bits[6] &= bits[5];
-	return bits[cond >> 1] ^ (cond & 1) ^ ((cond + 1) >> 4);
-	
-	/*
     int temp = 0;
 
     switch (cond) {
@@ -1195,9 +1178,7 @@ int CondPassed(ARMul_State* cpu, unsigned int cond) {
         temp = 1;
         break;
     }
-	
     return temp;
-	*/
 }
 
 enum DECODE_STATUS {
@@ -3552,42 +3533,15 @@ const transop_fp_t arm_instruction_trans[] = {
     INTERPRETER_TRANSLATE(blx_1_thumb)
 };
 
-//typedef std::unordered_map<u32, int> bb_map;
-//static bb_map CreamCache;
-static int *CreamCache = nullptr, CreamCacheSize = 0;
+typedef std::unordered_map<u32, int> bb_map;
+static bb_map CreamCache;
 
 static void insert_bb(unsigned int addr, int start) {
-    //CreamCache[addr] = start;
-	if (addr >= CreamCacheSize)
-	{
-		unsigned int v = addr;
-		v--;
-		v |= v >> 1;
-		v |= v >> 2;
-		v |= v >> 4;
-		v |= v >> 8;
-		v |= v >> 16;
-		v++;
-
-		auto NewPtr = new int[v];
-		if (CreamCache)
-		{
-			memcpy(NewPtr, CreamCache, CreamCacheSize * 4);
-			delete [] CreamCache;
-		}
-		memset(NewPtr + CreamCacheSize, 0xFF, (v - CreamCacheSize) * 4);
-		CreamCache = NewPtr;
-		CreamCacheSize = v;
-	}
-	CreamCache[addr] = start;
+    CreamCache[addr] = start;
 }
 
 static int find_bb(unsigned int addr, int& start) {
-	if (addr >= CreamCacheSize) return -1;
-	start = CreamCache[addr];
-	if (start == -1) return -1;
-	return 0;
-    /*int ret = -1;
+    int ret = -1;
     bb_map::const_iterator it = CreamCache.find(addr);
     if (it != CreamCache.end()) {
         start = static_cast<int>(it->second);
@@ -3595,7 +3549,7 @@ static int find_bb(unsigned int addr, int& start) {
     } else {
         ret = -1;
     }
-    return ret;*/
+    return ret;
 }
 
 enum {
@@ -3762,9 +3716,6 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
 
     #define INC_PC(l) ptr += sizeof(arm_inst) + l
 
-	unsigned int num_instrs = 0;
-	ARMul_State* cpu = state;
-	arm_inst* inst_base;
 // GCC and Clang have a C++ extension to support a lookup table of labels. Otherwise, fallback to a
 // clunky switch statement.
 #if defined __GNUC__ || defined __clang__
@@ -3773,211 +3724,208 @@ unsigned InterpreterMainLoop(ARMul_State* state) {
     num_instrs++; \
     goto *InstLabel[inst_base->idx]
 #else
-	goto next_inst_end;
-#define GOTO_NEXT_INST goto next_inst;
-next_inst:
-    if (num_instrs >= cpu->NumInstrsToExecute) goto END;
-    num_instrs++;
-    switch(inst_base->idx) {
-    case 0: goto VMLA_INST;
-    case 1: goto VMLS_INST;
-    case 2: goto VNMLA_INST;
-    case 3: goto VNMLA_INST;
-    case 4: goto VNMLS_INST;
-    case 5: goto VNMUL_INST;
-    case 6: goto VMUL_INST;
-    case 7: goto VADD_INST;
-    case 8: goto VSUB_INST;
-    case 9: goto VDIV_INST;
-    case 10: goto VMOVI_INST;
-    case 11: goto VMOVR_INST;
-    case 12: goto VABS_INST;
-    case 13: goto VNEG_INST;
-    case 14: goto VSQRT_INST;
-    case 15: goto VCMP_INST;
-    case 16: goto VCMP2_INST;
-    case 17: goto VCVTBDS_INST;
-    case 18: goto VCVTBFF_INST;
-    case 19: goto VCVTBFI_INST;
-    case 20: goto VMOVBRS_INST;
-    case 21: goto VMSR_INST;
-    case 22: goto VMOVBRC_INST;
-    case 23: goto VMRS_INST;
-    case 24: goto VMOVBCR_INST;
-    case 25: goto VMOVBRRSS_INST;
-    case 26: goto VMOVBRRD_INST;
-    case 27: goto VSTR_INST;
-    case 28: goto VPUSH_INST;
-    case 29: goto VSTM_INST;
-    case 30: goto VPOP_INST;
-    case 31: goto VLDR_INST;
-    case 32: goto VLDM_INST ;
-    case 33: goto SRS_INST;
-    case 34: goto RFE_INST;
-    case 35: goto BKPT_INST;
-    case 36: goto BLX_INST;
-    case 37: goto CPS_INST;
-    case 38: goto PLD_INST;
-    case 39: goto SETEND_INST;
-    case 40: goto CLREX_INST;
-    case 41: goto REV16_INST;
-    case 42: goto USAD8_INST;
-    case 43: goto SXTB_INST;
-    case 44: goto UXTB_INST;
-    case 45: goto SXTH_INST;
-    case 46: goto SXTB16_INST;
-    case 47: goto UXTH_INST;
-    case 48: goto UXTB16_INST;
-    case 49: goto CPY_INST;
-    case 50: goto UXTAB_INST;
-    case 51: goto SSUB8_INST;
-    case 52: goto SHSUB8_INST;
-    case 53: goto SSUBADDX_INST;
-    case 54: goto STREX_INST;
-    case 55: goto STREXB_INST;
-    case 56: goto SWP_INST;
-    case 57: goto SWPB_INST;
-    case 58: goto SSUB16_INST;
-    case 59: goto SSAT16_INST;
-    case 60: goto SHSUBADDX_INST;
-    case 61: goto QSUBADDX_INST;
-    case 62: goto SHADDSUBX_INST;
-    case 63: goto SHADD8_INST;
-    case 64: goto SHADD16_INST;
-    case 65: goto SEL_INST;
-    case 66: goto SADDSUBX_INST;
-    case 67: goto SADD8_INST;
-    case 68: goto SADD16_INST;
-    case 69: goto SHSUB16_INST;
-    case 70: goto UMAAL_INST;
-    case 71: goto UXTAB16_INST;
-    case 72: goto USUBADDX_INST;
-    case 73: goto USUB8_INST;
-    case 74: goto USUB16_INST;
-    case 75: goto USAT16_INST;
-    case 76: goto USADA8_INST;
-    case 77: goto UQSUBADDX_INST;
-    case 78: goto UQSUB8_INST;
-    case 79: goto UQSUB16_INST;
-    case 80: goto UQADDSUBX_INST;
-    case 81: goto UQADD8_INST;
-    case 82: goto UQADD16_INST;
-    case 83: goto SXTAB_INST;
-    case 84: goto UHSUBADDX_INST;
-    case 85: goto UHSUB8_INST;
-    case 86: goto UHSUB16_INST;
-    case 87: goto UHADDSUBX_INST;
-    case 88: goto UHADD8_INST;
-    case 89: goto UHADD16_INST;
-    case 90: goto UADDSUBX_INST;
-    case 91: goto UADD8_INST;
-    case 92: goto UADD16_INST;
-    case 93: goto SXTAH_INST;
-    case 94: goto SXTAB16_INST;
-    case 95: goto QADD8_INST;
-    case 96: goto BXJ_INST;
-    case 97: goto CLZ_INST;
-    case 98: goto UXTAH_INST;
-    case 99: goto BX_INST;
-    case 100: goto REV_INST;
-    case 101: goto BLX_INST;
-    case 102: goto REVSH_INST;
-    case 103: goto QADD_INST;
-    case 104: goto QADD16_INST;
-    case 105: goto QADDSUBX_INST;
-    case 106: goto LDREX_INST;
-    case 107: goto QDADD_INST;
-    case 108: goto QDSUB_INST;
-    case 109: goto QSUB_INST;
-    case 110: goto LDREXB_INST;
-    case 111: goto QSUB8_INST;
-    case 112: goto QSUB16_INST;
-    case 113: goto SMUAD_INST;
-    case 114: goto SMMUL_INST;
-    case 115: goto SMUSD_INST;
-    case 116: goto SMLSD_INST;
-    case 117: goto SMLSLD_INST;
-    case 118: goto SMMLA_INST;
-    case 119: goto SMMLS_INST;
-    case 120: goto SMLALD_INST;
-    case 121: goto SMLAD_INST;
-    case 122: goto SMLAW_INST;
-    case 123: goto SMULW_INST;
-    case 124: goto PKHTB_INST;
-    case 125: goto PKHBT_INST;
-    case 126: goto SMUL_INST;
-    case 127: goto SMLALXY_INST;
-    case 128: goto SMLA_INST;
-    case 129: goto MCRR_INST;
-    case 130: goto MRRC_INST;
-    case 131: goto CMP_INST;
-    case 132: goto TST_INST;
-    case 133: goto TEQ_INST;
-    case 134: goto CMN_INST;
-    case 135: goto SMULL_INST;
-    case 136: goto UMULL_INST;
-    case 137: goto UMLAL_INST;
-    case 138: goto SMLAL_INST;
-    case 139: goto MUL_INST;
-    case 140: goto MLA_INST;
-    case 141: goto SSAT_INST;
-    case 142: goto USAT_INST;
-    case 143: goto MRS_INST;
-    case 144: goto MSR_INST;
-    case 145: goto AND_INST;
-    case 146: goto BIC_INST;
-    case 147: goto LDM_INST;
-    case 148: goto EOR_INST;
-    case 149: goto ADD_INST;
-    case 150: goto RSB_INST;
-    case 151: goto RSC_INST;
-    case 152: goto SBC_INST;
-    case 153: goto ADC_INST;
-    case 154: goto SUB_INST;
-    case 155: goto ORR_INST;
-    case 156: goto MVN_INST;
-    case 157: goto MOV_INST;
-    case 158: goto STM_INST;
-    case 159: goto LDM_INST;
-    case 160: goto LDRSH_INST;
-    case 161: goto STM_INST;
-    case 162: goto LDM_INST;
-    case 163: goto LDRSB_INST;
-    case 164: goto STRD_INST;
-    case 165: goto LDRH_INST;
-    case 166: goto STRH_INST;
-    case 167: goto LDRD_INST;
-    case 168: goto STRT_INST;
-    case 169: goto STRBT_INST;
-    case 170: goto LDRBT_INST;
-    case 171: goto LDRT_INST;
-    case 172: goto MRC_INST;
-    case 173: goto MCR_INST;
-    case 174: goto MSR_INST;
-    case 175: goto LDRB_INST;
-    case 176: goto STRB_INST;
-    case 177: goto LDR_INST;
-    case 178: goto LDRCOND_INST ;
-    case 179: goto STR_INST;
-    case 180: goto CDP_INST;
-    case 181: goto STC_INST;
-    case 182: goto LDC_INST;
-    case 183: goto SWI_INST;
-    case 184: goto BBL_INST;
-    case 185: goto LDREXD_INST;
-    case 186: goto STREXD_INST;
-    case 187: goto LDREXH_INST;
-    case 188: goto STREXH_INST;
-    case 189: goto B_2_THUMB ;
-    case 190: goto B_COND_THUMB ;
-    case 191: goto BL_1_THUMB ;
-    case 192: goto BL_2_THUMB ;
-    case 193: goto BLX_1_THUMB ;
-    case 194: goto DISPATCH;
-    case 195: goto INIT_INST_LENGTH;
-    case 196: goto END;
-	}
-next_inst_end:
+#define GOTO_NEXT_INST \
+    if (num_instrs >= cpu->NumInstrsToExecute) goto END; \
+    num_instrs++; \
+    switch(inst_base->idx) { \
+    case 0: goto VMLA_INST; \
+    case 1: goto VMLS_INST; \
+    case 2: goto VNMLA_INST; \
+    case 3: goto VNMLA_INST; \
+    case 4: goto VNMLS_INST; \
+    case 5: goto VNMUL_INST; \
+    case 6: goto VMUL_INST; \
+    case 7: goto VADD_INST; \
+    case 8: goto VSUB_INST; \
+    case 9: goto VDIV_INST; \
+    case 10: goto VMOVI_INST; \
+    case 11: goto VMOVR_INST; \
+    case 12: goto VABS_INST; \
+    case 13: goto VNEG_INST; \
+    case 14: goto VSQRT_INST; \
+    case 15: goto VCMP_INST; \
+    case 16: goto VCMP2_INST; \
+    case 17: goto VCVTBDS_INST; \
+    case 18: goto VCVTBFF_INST; \
+    case 19: goto VCVTBFI_INST; \
+    case 20: goto VMOVBRS_INST; \
+    case 21: goto VMSR_INST; \
+    case 22: goto VMOVBRC_INST; \
+    case 23: goto VMRS_INST; \
+    case 24: goto VMOVBCR_INST; \
+    case 25: goto VMOVBRRSS_INST; \
+    case 26: goto VMOVBRRD_INST; \
+    case 27: goto VSTR_INST; \
+    case 28: goto VPUSH_INST; \
+    case 29: goto VSTM_INST; \
+    case 30: goto VPOP_INST; \
+    case 31: goto VLDR_INST; \
+    case 32: goto VLDM_INST ; \
+    case 33: goto SRS_INST; \
+    case 34: goto RFE_INST; \
+    case 35: goto BKPT_INST; \
+    case 36: goto BLX_INST; \
+    case 37: goto CPS_INST; \
+    case 38: goto PLD_INST; \
+    case 39: goto SETEND_INST; \
+    case 40: goto CLREX_INST; \
+    case 41: goto REV16_INST; \
+    case 42: goto USAD8_INST; \
+    case 43: goto SXTB_INST; \
+    case 44: goto UXTB_INST; \
+    case 45: goto SXTH_INST; \
+    case 46: goto SXTB16_INST; \
+    case 47: goto UXTH_INST; \
+    case 48: goto UXTB16_INST; \
+    case 49: goto CPY_INST; \
+    case 50: goto UXTAB_INST; \
+    case 51: goto SSUB8_INST; \
+    case 52: goto SHSUB8_INST; \
+    case 53: goto SSUBADDX_INST; \
+    case 54: goto STREX_INST; \
+    case 55: goto STREXB_INST; \
+    case 56: goto SWP_INST; \
+    case 57: goto SWPB_INST; \
+    case 58: goto SSUB16_INST; \
+    case 59: goto SSAT16_INST; \
+    case 60: goto SHSUBADDX_INST; \
+    case 61: goto QSUBADDX_INST; \
+    case 62: goto SHADDSUBX_INST; \
+    case 63: goto SHADD8_INST; \
+    case 64: goto SHADD16_INST; \
+    case 65: goto SEL_INST; \
+    case 66: goto SADDSUBX_INST; \
+    case 67: goto SADD8_INST; \
+    case 68: goto SADD16_INST; \
+    case 69: goto SHSUB16_INST; \
+    case 70: goto UMAAL_INST; \
+    case 71: goto UXTAB16_INST; \
+    case 72: goto USUBADDX_INST; \
+    case 73: goto USUB8_INST; \
+    case 74: goto USUB16_INST; \
+    case 75: goto USAT16_INST; \
+    case 76: goto USADA8_INST; \
+    case 77: goto UQSUBADDX_INST; \
+    case 78: goto UQSUB8_INST; \
+    case 79: goto UQSUB16_INST; \
+    case 80: goto UQADDSUBX_INST; \
+    case 81: goto UQADD8_INST; \
+    case 82: goto UQADD16_INST; \
+    case 83: goto SXTAB_INST; \
+    case 84: goto UHSUBADDX_INST; \
+    case 85: goto UHSUB8_INST; \
+    case 86: goto UHSUB16_INST; \
+    case 87: goto UHADDSUBX_INST; \
+    case 88: goto UHADD8_INST; \
+    case 89: goto UHADD16_INST; \
+    case 90: goto UADDSUBX_INST; \
+    case 91: goto UADD8_INST; \
+    case 92: goto UADD16_INST; \
+    case 93: goto SXTAH_INST; \
+    case 94: goto SXTAB16_INST; \
+    case 95: goto QADD8_INST; \
+    case 96: goto BXJ_INST; \
+    case 97: goto CLZ_INST; \
+    case 98: goto UXTAH_INST; \
+    case 99: goto BX_INST; \
+    case 100: goto REV_INST; \
+    case 101: goto BLX_INST; \
+    case 102: goto REVSH_INST; \
+    case 103: goto QADD_INST; \
+    case 104: goto QADD16_INST; \
+    case 105: goto QADDSUBX_INST; \
+    case 106: goto LDREX_INST; \
+    case 107: goto QDADD_INST; \
+    case 108: goto QDSUB_INST; \
+    case 109: goto QSUB_INST; \
+    case 110: goto LDREXB_INST; \
+    case 111: goto QSUB8_INST; \
+    case 112: goto QSUB16_INST; \
+    case 113: goto SMUAD_INST; \
+    case 114: goto SMMUL_INST; \
+    case 115: goto SMUSD_INST; \
+    case 116: goto SMLSD_INST; \
+    case 117: goto SMLSLD_INST; \
+    case 118: goto SMMLA_INST; \
+    case 119: goto SMMLS_INST; \
+    case 120: goto SMLALD_INST; \
+    case 121: goto SMLAD_INST; \
+    case 122: goto SMLAW_INST; \
+    case 123: goto SMULW_INST; \
+    case 124: goto PKHTB_INST; \
+    case 125: goto PKHBT_INST; \
+    case 126: goto SMUL_INST; \
+    case 127: goto SMLALXY_INST; \
+    case 128: goto SMLA_INST; \
+    case 129: goto MCRR_INST; \
+    case 130: goto MRRC_INST; \
+    case 131: goto CMP_INST; \
+    case 132: goto TST_INST; \
+    case 133: goto TEQ_INST; \
+    case 134: goto CMN_INST; \
+    case 135: goto SMULL_INST; \
+    case 136: goto UMULL_INST; \
+    case 137: goto UMLAL_INST; \
+    case 138: goto SMLAL_INST; \
+    case 139: goto MUL_INST; \
+    case 140: goto MLA_INST; \
+    case 141: goto SSAT_INST; \
+    case 142: goto USAT_INST; \
+    case 143: goto MRS_INST; \
+    case 144: goto MSR_INST; \
+    case 145: goto AND_INST; \
+    case 146: goto BIC_INST; \
+    case 147: goto LDM_INST; \
+    case 148: goto EOR_INST; \
+    case 149: goto ADD_INST; \
+    case 150: goto RSB_INST; \
+    case 151: goto RSC_INST; \
+    case 152: goto SBC_INST; \
+    case 153: goto ADC_INST; \
+    case 154: goto SUB_INST; \
+    case 155: goto ORR_INST; \
+    case 156: goto MVN_INST; \
+    case 157: goto MOV_INST; \
+    case 158: goto STM_INST; \
+    case 159: goto LDM_INST; \
+    case 160: goto LDRSH_INST; \
+    case 161: goto STM_INST; \
+    case 162: goto LDM_INST; \
+    case 163: goto LDRSB_INST; \
+    case 164: goto STRD_INST; \
+    case 165: goto LDRH_INST; \
+    case 166: goto STRH_INST; \
+    case 167: goto LDRD_INST; \
+    case 168: goto STRT_INST; \
+    case 169: goto STRBT_INST; \
+    case 170: goto LDRBT_INST; \
+    case 171: goto LDRT_INST; \
+    case 172: goto MRC_INST; \
+    case 173: goto MCR_INST; \
+    case 174: goto MSR_INST; \
+    case 175: goto LDRB_INST; \
+    case 176: goto STRB_INST; \
+    case 177: goto LDR_INST; \
+    case 178: goto LDRCOND_INST ; \
+    case 179: goto STR_INST; \
+    case 180: goto CDP_INST; \
+    case 181: goto STC_INST; \
+    case 182: goto LDC_INST; \
+    case 183: goto SWI_INST; \
+    case 184: goto BBL_INST; \
+    case 185: goto LDREXD_INST; \
+    case 186: goto STREXD_INST; \
+    case 187: goto LDREXH_INST; \
+    case 188: goto STREXH_INST; \
+    case 189: goto B_2_THUMB ; \
+    case 190: goto B_COND_THUMB ; \
+    case 191: goto BL_1_THUMB ; \
+    case 192: goto BL_2_THUMB ; \
+    case 193: goto BLX_1_THUMB ; \
+    case 194: goto DISPATCH; \
+    case 195: goto INIT_INST_LENGTH; \
+    case 196: goto END; \
+    }
 #endif
 
     #define UPDATE_NFLAG(dst)    (cpu->NFlag = BIT(dst, 31) ? 1 : 0)
@@ -4000,6 +3948,7 @@ next_inst_end:
     #define PC (cpu->Reg[15])
     #define CHECK_EXT_INT if (!cpu->NirqSig && !(cpu->Cpsr & 0x80)) goto END;
 
+    ARMul_State* cpu = state;
 
     // GCC and Clang have a C++ extension to support a lookup table of labels. Otherwise, fallback
     // to a clunky switch statement.
@@ -4029,8 +3978,10 @@ next_inst_end:
         &&INIT_INST_LENGTH,&&END
         };
 #endif
+    arm_inst* inst_base;
     unsigned int addr;
     unsigned int phys_addr;
+    unsigned int num_instrs = 0;
 
     int ptr;
 

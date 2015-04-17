@@ -177,30 +177,14 @@ private:
  *
  * @todo define orientation concretely.
  */
-static int SignedArea (Math::Vec2<Fix12P4> vtx1,
-                       Math::Vec2<Fix12P4> vtx2,
-                       Math::Vec2<Fix12P4> vtx3) {
+static int SignedArea (const Math::Vec2<Fix12P4>& vtx1,
+                       const Math::Vec2<Fix12P4>& vtx2,
+                       const Math::Vec2<Fix12P4>& vtx3) {
     const auto vec1 = Math::MakeVec(vtx2 - vtx1, 0);
     const auto vec2 = Math::MakeVec(vtx3 - vtx1, 0);
     // TODO: There is a very small chance this will overflow for sizeof(int) == 4
     return Math::Cross(vec1, vec2).z;
 };
-
-static u8 GetAlphaModifierMatrixA[] = { 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0 };
-static u8 GetAlphaModifierMatrixB[] = { 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0 };
-
-inline u8 GetAlphaModifier(Regs::TevStageConfig::AlphaModifier factor, Math::Vec4<u8> values)
-{
-	using AlphaModifier = Regs::TevStageConfig::AlphaModifier;
-
-	auto fi = (int) factor;
-
-	return
-		values.a() * GetAlphaModifierMatrixA[fi + 6] + GetAlphaModifierMatrixB[fi + 6] +
-		values.r() * GetAlphaModifierMatrixA[fi + 4] + GetAlphaModifierMatrixB[fi + 4] +
-		values.g() * GetAlphaModifierMatrixA[fi + 2] + GetAlphaModifierMatrixB[fi + 2] +
-		values.b() * GetAlphaModifierMatrixA[fi + 0] + GetAlphaModifierMatrixB[fi + 0];
-}
 
 /**
  * Helper function for ProcessTriangle with the "reversed" flag to allow for implementing
@@ -391,48 +375,41 @@ static void ProcessTriangleInternal(const VertexShader::OutputVertex& v0,
             // operations on each of them (e.g. inversion) and then calculate the output color
             // with some basic arithmetic. Alpha combiners can be configured separately but work
             // analogously.
-			using Source = Regs::TevStageConfig::Source;
             Math::Vec4<u8> combiner_output;
-			Math::Vec4<u8> constant, empty = {};
-
-			Math::Vec4<u8> *results[0x11];
-			results[(int) Source::PrimaryColor] = results[(int) Source::PrimaryFragmentColor] = &primary_color;
-			results[(int) Source::Texture0] = texture_color + 0;
-			results[(int) Source::Texture1] = texture_color + 1;
-			results[(int) Source::Texture2] = texture_color + 2;
-			results[(int) 0x7] = &empty;
-			results[(int) 0x8] = &empty;
-			results[(int) 0x9] = &empty;
-			results[(int) 0xa] = &empty;
-			results[(int) 0xb] = &empty;
-			results[(int) 0xc] = &empty;
-			results[(int) 0xd] = &empty;
-			results[(int) Source::Constant] = &constant;
-			results[(int) Source::Previous] = &combiner_output;
-			results[(int) 0x11] = &empty;
-
-
-			int tempsI = 0;
             for (const auto& tev_stage : tev_stages) {
+                using Source = Regs::TevStageConfig::Source;
                 using ColorModifier = Regs::TevStageConfig::ColorModifier;
                 using AlphaModifier = Regs::TevStageConfig::AlphaModifier;
                 using Operation = Regs::TevStageConfig::Operation;
 
-				struct
-				{
-					Math::Vec4<u8> **results, &constant;
-					const Pica::Regs::TevStageConfig &tev_stage;
+                auto GetSource = [&](Source source) -> Math::Vec4<u8> {
+                    switch (source) {
+                    // TODO: What's the difference between these two?
+                    case Source::PrimaryColor:
+                    case Source::PrimaryFragmentColor:
+                        return primary_color;
 
-					Math::Vec4<u8> &operator()(Source source)
-					{
-						constant = { tev_stage.const_r, tev_stage.const_g, tev_stage.const_b, tev_stage.const_a };
-						return *(results[std::min((int) source, 0x11)]);
-					}
-				}
-				GetSource
-				{
-					results, constant, tev_stage
-				};
+                    case Source::Texture0:
+                        return texture_color[0];
+
+                    case Source::Texture1:
+                        return texture_color[1];
+
+                    case Source::Texture2:
+                        return texture_color[2];
+
+                    case Source::Constant:
+                        return {tev_stage.const_r, tev_stage.const_g, tev_stage.const_b, tev_stage.const_a};
+
+                    case Source::Previous:
+                        return combiner_output;
+
+                    default:
+                        LOG_ERROR(HW_GPU, "Unknown color combiner source %d\n", (int)source);
+                        UNIMPLEMENTED();
+                        return {};
+                    }
+                };
 
                 static auto GetColorModifier = [](ColorModifier factor, const Math::Vec4<u8>& values) -> Math::Vec3<u8> {
                     switch (factor) {
@@ -465,6 +442,34 @@ static void ProcessTriangleInternal(const VertexShader::OutputVertex& v0,
 
                     case ColorModifier::OneMinusSourceBlue:
                         return (Math::Vec3<u8>(255, 255, 255) - values.bbb()).Cast<u8>();
+                    }
+                };
+
+                static auto GetAlphaModifier = [](AlphaModifier factor, const Math::Vec4<u8>& values) -> u8 {
+                    switch (factor) {
+                    case AlphaModifier::SourceAlpha:
+                        return values.a();
+
+                    case AlphaModifier::OneMinusSourceAlpha:
+                        return 255 - values.a();
+
+                    case AlphaModifier::SourceRed:
+                        return values.r();
+
+                    case AlphaModifier::OneMinusSourceRed:
+                        return 255 - values.r();
+
+                    case AlphaModifier::SourceGreen:
+                        return values.g();
+
+                    case AlphaModifier::OneMinusSourceGreen:
+                        return 255 - values.g();
+
+                    case AlphaModifier::SourceBlue:
+                        return values.b();
+
+                    case AlphaModifier::OneMinusSourceBlue:
+                        return 255 - values.b();
                     }
                 };
 
