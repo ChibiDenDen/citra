@@ -18,6 +18,6 @@ public:
     std::string GetPortName() const override {
         return "csnd:SND";
     }
-};
 
-} // namespace
+}; // namespace
+}

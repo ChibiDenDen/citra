@@ -78,8 +78,8 @@ if (ENABLE_GLFW)
             elseif (MSVC12) # Visual C++ 2013
                 set(TMP_TOOLSET "v120")
             else()
-                set(TMP_TOOLSET "UNSUPPORTED")
-                message(SEND_ERROR "We don't supply GLFW binaries for your version of MSVC, you might have to provide them yourself.")
+                set(TMP_TOOLSET "v120")
+                
             endif()
 
             set(TMP_TOOLSET "msvc_${TMP_TOOLSET}-${TMP_ARCH}")
@@ -183,6 +183,10 @@ include_directories(${INI_PREFIX})
 add_subdirectory(${INI_PREFIX})
 
 include_directories(externals/nihstro/include)
+
+include_directories(externals/PortAudio/include)
+link_directories(externals/PortAudio/)
+link_libraries(portaudio_static_x64.lib)
 
 # process subdirectories
 if(ENABLE_QT)
