@@ -8,6 +8,8 @@
 #include "core/hw/gpu.h"
 #include "core/hw/lcd.h"
 
+#include "core/hle/service/csnd_snd.h"
+
 namespace HW {
 
 template <typename T>
@@ -52,6 +54,7 @@ template void Write<u8>(u32 addr, const u8 data);
 
 /// Update hardware
 void Update() {
+	CSND_SND::Update();
 }
 
 /// Initialize hardware

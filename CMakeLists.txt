@@ -184,9 +184,9 @@ add_subdirectory(${INI_PREFIX})
 
 include_directories(externals/nihstro/include)
 
-include_directories(externals/PortAudio/include)
-link_directories(externals/PortAudio/)
-link_libraries(portaudio_static_x64.lib)
+include_directories(externals/OpenAL/include)
+link_directories(externals/OpenAL/)
+link_libraries(OpenAL32.lib)
 
 # process subdirectories
 if(ENABLE_QT)

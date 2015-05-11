@@ -11,6 +11,9 @@
 
 namespace CSND_SND {
 
+	// static update function for updating the sound subsystem
+	void Update();
+
 class Interface : public Service::Interface {
 public:
     Interface();

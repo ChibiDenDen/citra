@@ -8,17 +8,20 @@
 
 #include "core/hle/hle.h"
 #include "core/hle/service/csnd_snd.h"
-#include <future>
-#include <portaudio.h>
+
+#include <al/al.h>
+#include <al/alc.h>
 
 #define SAMPLE_RATE (44100)
 #define CURRENT_CHANNEL (&state.Channels[state.current_channel])
 
-
-static std::future<void>* Async(std::function<void()> func)
-{
-	return new auto(std::async(std::launch::async, func));
-}
+// remove this line to stop printing OpenAL debug messages
+#define _DEBUG_OPEN_AL_
+#ifdef _DEBUG_OPEN_AL_
+#define AL_DBG PrintErr(__LINE__);
+#else
+#define AL_DBG
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Namespace CSND_SND
@@ -43,6 +46,11 @@ namespace CSND_SND {
 		PSG
 	};
 
+	struct SoundPlayer {
+		ALuint buffers[2];
+		ALuint source;
+	};
+
 struct SoundState {
     Kernel::SharedPtr<Kernel::SharedMemory> shared_memory;
     u32 shared_memory_size;
@@ -57,8 +65,6 @@ struct SoundState {
 		u32 Size2;
 		bool Looping;
 		bool playing;
-		std::future<void>* cur_play = nullptr;
-		PaStream *stream;
 		u32 SampleRate;
 
 		LerpMode lerp_mode;
@@ -70,19 +76,30 @@ struct SoundState {
 
 		u16 capture_vol_left;
 		u16 capture_vol_right;
+
+		SoundPlayer player;
 	};
 
 	u32 current_channel;
 	ChannelState Channels[0x1f];
+	bool initialized;
 }state;
 
 static u32 ConvertSampleRate(u32 input_rate) {
 	return  67027964 / input_rate;
 }
 
+static void PrintErr(int line){
+	auto err = alGetError();
+	if (err != AL_NO_ERROR) {
+		printf("OpenAL ERROR: %d\n", err);
+        printf("At Line: %d\n\n", line);
+	}
+}
+
 static void Initialize(Service::Interface* self) {
     u32 * cmd_buff = Kernel::GetCommandBuffer();
-    
+
     state.shared_memory_size = cmd_buff[1];
     for (auto i = 0; i < 4; i++) {
         state.offsets[i] = cmd_buff[2 + i];
@@ -100,25 +117,35 @@ static void Initialize(Service::Interface* self) {
 
     cmd_buff[1] = RESULT_SUCCESS.raw;
 
-	auto err = Pa_Initialize();
-	if (err != paNoError) {
-		// TODO: print error
+	if (state.initialized) {
+		return;
 	}
 
-	PaStreamParameters outputParameters;
+	// Initialize Open AL
 
-	outputParameters.device = Pa_GetDefaultOutputDevice(); /* default output device */
-	outputParameters.channelCount = 1;
-	outputParameters.sampleFormat = paInt16;
-	outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultHighOutputLatency;
-	outputParameters.hostApiSpecificStreamInfo = NULL;
-	/* Open an audio I/O stream. */
-	for (auto i = 0; i < 0x1f; i++) {
-		err = Pa_OpenStream(&state.Channels[i].stream, nullptr, &outputParameters, SAMPLE_RATE, paFramesPerBufferUnspecified, 0, nullptr, nullptr);
-		if (err != paNoError) {
-			// TODO: print error
+    // open default device
+    auto device = alcOpenDevice(NULL); AL_DBG;
+	if (device != NULL) {
+        // create context
+        auto context = alcCreateContext(device, NULL); AL_DBG;
+		if (context != NULL) {
+            // set active context
+            alcMakeContextCurrent(context); AL_DBG;
 		}
 	}
+	
+
+	// TODO: De-initialize sometime
+	for (auto i = 0; i < _countof(state.Channels); i++) {
+        alGenBuffers(_countof(state.Channels[i].player.buffers), state.Channels[i].player.buffers); AL_DBG;
+        alGenSources(1, &state.Channels[i].player.source); AL_DBG;
+        alSource3i(state.Channels[i].player.source, AL_POSITION, 0, 0, 0); AL_DBG;
+        alSourcei(state.Channels[i].player.source, AL_SOURCE_RELATIVE, AL_TRUE); AL_DBG;
+        alSourcei(state.Channels[i].player.source, AL_ROLLOFF_FACTOR, 0); AL_DBG;
+        alSourcei(state.Channels[i].player.source, AL_LOOPING, AL_FALSE); AL_DBG;
+	}
+
+    state.initialized = true;
 
 	state.current_channel = 0;
 }
@@ -132,48 +159,29 @@ struct Command {
 
 static void Shutdown(Service::Interface* self);
 
-static void PlayChannel(SoundState::ChannelState* channel) {
-	if (!channel->playing)
-	{
-		u8* PlayData1 = new u8[channel->Size1];
-		u32 PlaySize1 = channel->Size1;
-		channel->playing = true;
-		std::copy(channel->Data1, channel->Data1 + channel->Size1, PlayData1);
-		channel->cur_play = Async([PlayData1, PlaySize1, channel](){
-			Pa_StartStream(channel->stream);
+static int GetSmallBufferSize(int total_size) {
+    int small_size = total_size / 2;
+    if (small_size > 0x400) {
+        small_size = 0x400;
+    }
+    return small_size & (~1);
+}
 
-			auto size = PlaySize1;
-			auto data = PlayData1;
-			auto offset = 0;
-			while (channel->playing)
-			{
-				//printf("XXXX\n");
-				if (size - offset < 0x400)
-				{
-					Pa_WriteStream(channel->stream, data + offset, (size - offset) / 2);
-					offset = 0;
-					size = channel->Size2;
-					data = channel->Data2;
-				}
-				else
-				{
-					Pa_WriteStream(channel->stream, data + offset, (0x400) / 2);
-					offset += 0x400;
-				}
-			}
-			Pa_StopStream(channel->stream);
-			delete [] PlayData1;
-		});
-	}
+static void PlayChannel(SoundState::ChannelState* channel) {
+    if (!channel->playing)
+    {
+        channel->playing = true;
+        auto small_size = GetSmallBufferSize(channel->Size1);
+        alBufferData(channel->player.buffers[0], AL_FORMAT_MONO16, channel->Data1, channel->Size1 - small_size, channel->SampleRate); AL_DBG;
+        alBufferData(channel->player.buffers[1], AL_FORMAT_MONO16, channel->Data1 + channel->Size1 - small_size, small_size, channel->SampleRate); AL_DBG;
+        alSourceQueueBuffers(channel->player.source, 2, channel->player.buffers); AL_DBG;
+        alSourcePlay(channel->player.source); AL_DBG;
+    }
 }
 
 static void StopChannel(SoundState::ChannelState* channel) {
 	channel->playing = false;
-	if (channel->cur_play != nullptr)
-	{
-		channel->cur_play->wait();
-	}
-	channel->cur_play = nullptr;
+    alSourceStop(channel->player.source); AL_DBG;
 }
 
 typedef void(*Type0CommandFunction)(u32 params[6]);
@@ -188,8 +196,6 @@ static void SetPlayState(u32 params[6]) {
 	u32 channel = params[0];
 
 	state.current_channel = channel;
-	
-	printf("channel: %d\n", params[0]);
 	
 	if (play) {
 		PlayChannel(CURRENT_CHANNEL);
@@ -296,7 +302,12 @@ static void SetChnRegs(u32 params[6]) {
 		channel->Size2 = block_size;
 	}
 
-	// TODO: handle playback flag
+    if (flags.Playback) {
+        PlayChannel(CURRENT_CHANNEL);
+    }
+    else {
+        StopChannel(CURRENT_CHANNEL);
+    }
 }
 
 #define SetChnRegsPSG nullptr
@@ -403,5 +414,54 @@ const Interface::FunctionInfo FunctionTable[] = {
 Interface::Interface() {
     Register(FunctionTable);
 }
+
+ALenum GetAlFormatFromEncoding(Encoding enc) {
+    if (enc == Encoding::PCM8) {
+        return AL_FORMAT_MONO8;
+    }
+    else if (enc == Encoding::PCM16) {
+        return AL_FORMAT_MONO16;
+    }
+    else {
+        // TODO: implement IMA_ADPCM and PSG once we have applications that use them
+        // OpenAL Soft supports AL_FORMAT_MONO_IMA4 that should be IMA_ADPCM
+        LOG_WARNING(Service_CSND, "Unimplemented encoding");
+        return AL_NONE;
+    }
+}
+
+void Update() {
+	for (auto& channel : state.Channels) {
+		if (channel.playing == false) {
+			continue;
+		}
+		ALint buffers_processed = 0;
+        alGetSourcei(channel.player.source, AL_BUFFERS_PROCESSED, &buffers_processed); AL_DBG;
+		while (buffers_processed != 0) {
+			ALuint buffer;
+            ALenum format = GetAlFormatFromEncoding(channel.encoding);
+
+            auto small_size = GetSmallBufferSize(channel.Size2);
+            alSourceUnqueueBuffers(channel.player.source, 1, &buffer); AL_DBG;
+            if (buffer == channel.player.buffers[0]) {
+                alBufferData(buffer, format, channel.Data2, channel.Size2 - small_size, channel.SampleRate); AL_DBG;
+            }
+            else {
+                alBufferData(buffer, format, channel.Data2 + channel.Size2 - small_size, small_size, channel.SampleRate); AL_DBG;
+            }
+            alSourceQueueBuffers(channel.player.source, 1, &buffer); AL_DBG;
+
+            ALint source_state;
+            alGetSourcei(channel.player.source, AL_SOURCE_STATE, &source_state); AL_DBG;
+            if (source_state != AL_PLAYING) {
+                alSourcePlay(channel.player.source); AL_DBG;
+            }
+
+
+            buffers_processed--;
+		}
+	}
+}
+
 
 } // namespace
