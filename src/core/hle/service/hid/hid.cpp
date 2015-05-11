@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include "common/logging/log.h"
+
 #include "core/hle/service/service.h"
 #include "core/hle/service/hid/hid.h"
 #include "core/hle/service/hid/hid_spvr.h"
@@ -20,17 +22,17 @@ namespace HID {
 static const int MAX_CIRCLEPAD_POS = 0x9C; ///< Max value for a circle pad position
 
 // Handle to shared memory region designated to HID_User service
-static Kernel::SharedPtr<Kernel::SharedMemory> shared_mem = nullptr;
+static Kernel::SharedPtr<Kernel::SharedMemory> shared_mem;
 
 // Event handles
-static Kernel::SharedPtr<Kernel::Event> event_pad_or_touch_1 = nullptr;
-static Kernel::SharedPtr<Kernel::Event> event_pad_or_touch_2 = nullptr;
-static Kernel::SharedPtr<Kernel::Event> event_accelerometer = nullptr;
-static Kernel::SharedPtr<Kernel::Event> event_gyroscope = nullptr;
-static Kernel::SharedPtr<Kernel::Event> event_debug_pad = nullptr;
+static Kernel::SharedPtr<Kernel::Event> event_pad_or_touch_1;
+static Kernel::SharedPtr<Kernel::Event> event_pad_or_touch_2;
+static Kernel::SharedPtr<Kernel::Event> event_accelerometer;
+static Kernel::SharedPtr<Kernel::Event> event_gyroscope;
+static Kernel::SharedPtr<Kernel::Event> event_debug_pad;
 
-static u32 next_pad_index = 0;
-static u32 next_touch_index = 0;
+static u32 next_pad_index;
+static u32 next_touch_index;
 
 // TODO(peachum):
 // Add a method for setting analog input from joystick device for the circle Pad.
@@ -46,7 +48,7 @@ static u32 next_touch_index = 0;
 //     * Set PadData.current_state.circle_right = 1 if current PadEntry.circle_pad_y <= -41
 
 void Update() {
-    SharedMem* mem = reinterpret_cast<SharedMem*>(shared_mem->GetPointer().ValueOr(nullptr));
+    SharedMem* mem = reinterpret_cast<SharedMem*>(shared_mem->GetPointer());
     const PadState state = VideoCore::g_emu_window->GetPadState();
 
     if (mem == nullptr) {
@@ -161,7 +163,9 @@ void Init() {
     AddService(new HID_U_Interface);
     AddService(new HID_SPVR_Interface);
 
-    shared_mem = SharedMemory::Create("HID:SharedMem");
+    using Kernel::MemoryPermission;
+    shared_mem = SharedMemory::Create(0x1000, MemoryPermission::ReadWrite,
+            MemoryPermission::Read, "HID:SharedMem");
 
     next_pad_index = 0;
     next_touch_index = 0;
@@ -175,6 +179,12 @@ void Init() {
 }
 
 void Shutdown() {
+    shared_mem = nullptr;
+    event_pad_or_touch_1 = nullptr;
+    event_pad_or_touch_2 = nullptr;
+    event_accelerometer = nullptr;
+    event_gyroscope = nullptr;
+    event_debug_pad = nullptr;
 }
 
 } // namespace HID

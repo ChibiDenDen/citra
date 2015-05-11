@@ -135,6 +135,12 @@ public:
      */
     void Stop();
 
+    /*
+     * Returns the Thread Local Storage address of the current thread
+     * @returns VAddr of the thread's TLS
+     */
+    VAddr GetTLSAddress() const;
+
     Core::ThreadContext context;
 
     u32 thread_id;
@@ -149,6 +155,8 @@ public:
     u64 last_running_ticks; ///< CPU tick when thread was last running
 
     s32 processor_id;
+
+    VAddr tls_address; ///< Address of the Thread Local Storage of the thread
 
     /// Mutexes currently held by this thread, which will be released when it exits.
     boost::container::flat_set<SharedPtr<Mutex>> held_mutexes;
@@ -171,16 +179,13 @@ private:
     Handle callback_handle;
 };
 
-extern SharedPtr<Thread> g_main_thread;
-
 /**
  * Sets up the primary application thread
- * @param stack_size The size of the thread's stack
  * @param entry_point The address at which the thread should start execution
  * @param priority The priority to give the main thread
  * @return A shared pointer to the main thread
  */
-SharedPtr<Thread> SetupMainThread(u32 stack_size, u32 entry_point, s32 priority);
+SharedPtr<Thread> SetupMainThread(u32 entry_point, s32 priority);
 
 /**
  * Reschedules to the next available thread (call after current thread is suspended)

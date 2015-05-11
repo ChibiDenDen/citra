@@ -15,8 +15,8 @@
 namespace Service {
 namespace IR {
 
-static Kernel::SharedPtr<Kernel::Event> handle_event = nullptr;
-static Kernel::SharedPtr<Kernel::SharedMemory> shared_memory = nullptr;
+static Kernel::SharedPtr<Kernel::Event> handle_event;
+static Kernel::SharedPtr<Kernel::SharedMemory> shared_memory;
 
 void GetHandles(Service::Interface* self) {
     u32* cmd_buff = Kernel::GetCommandBuffer();
@@ -34,13 +34,17 @@ void Init() {
     AddService(new IR_U_Interface);
     AddService(new IR_User_Interface);
 
-    shared_memory = SharedMemory::Create("IR:SharedMemory");
+    using Kernel::MemoryPermission;
+    shared_memory = SharedMemory::Create(0x1000, Kernel::MemoryPermission::ReadWrite,
+            Kernel::MemoryPermission::ReadWrite, "IR:SharedMemory");
 
     // Create event handle(s)
     handle_event  = Event::Create(RESETTYPE_ONESHOT, "IR:HandleEvent");
 }
 
 void Shutdown() {
+    shared_memory = nullptr;
+    handle_event = nullptr;
 }
 
 } // namespace IR

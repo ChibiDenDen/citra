@@ -4,6 +4,8 @@
 
 #include <map>
 
+#include "common/logging/log.h"
+#include "common/profiler.h"
 #include "common/string_util.h"
 #include "common/symbols.h"
 
@@ -310,7 +312,7 @@ static ResultCode GetResourceLimit(Handle* resource_limit, Handle process) {
 /// Get resource limit current values
 static ResultCode GetResourceLimitCurrentValues(s64* values, Handle resource_limit, void* names,
     s32 name_count) {
-    LOG_ERROR(Kernel_SVC, "(UNIMPLEMENTED) called resource_limit=%08X, names=%s, name_count=%d",
+    LOG_ERROR(Kernel_SVC, "(UNIMPLEMENTED) called resource_limit=%08X, names=%p, name_count=%d",
         resource_limit, names, name_count);
     Memory::Write32(Core::g_app_core->GetReg(0), 0); // Normmatt: Set used memory to 0 for now
     return RESULT_SUCCESS;
@@ -599,14 +601,26 @@ static ResultCode CreateMemoryBlock(Handle* out_handle, u32 addr, u32 size, u32 
     using Kernel::SharedMemory;
     // TODO(Subv): Implement this function
 
-    SharedPtr<SharedMemory> shared_memory = SharedMemory::Create();
+    using Kernel::MemoryPermission;
+    SharedPtr<SharedMemory> shared_memory = SharedMemory::Create(size,
+            (MemoryPermission)my_permission, (MemoryPermission)other_permission);
     CASCADE_RESULT(*out_handle, Kernel::g_handle_table.Create(std::move(shared_memory)));
 
     LOG_WARNING(Kernel_SVC, "(STUBBED) called addr=0x%08X", addr);
     return RESULT_SUCCESS;
 }
 
-const HLE::FunctionDef SVC_Table[] = {
+namespace {
+    struct FunctionDef {
+        using Func = void();
+
+        u32         id;
+        Func*       func;
+        const char* name;
+    };
+}
+
+static const FunctionDef SVC_Table[] = {
     {0x00, nullptr,                         "Unknown"},
     {0x01, HLE::Wrap<ControlMemory>,        "ControlMemory"},
     {0x02, HLE::Wrap<QueryMemory>,          "QueryMemory"},
@@ -735,8 +749,28 @@ const HLE::FunctionDef SVC_Table[] = {
     {0x7D, nullptr,                         "QueryProcessMemory"},
 };
 
-void Register() {
-    HLE::RegisterModule("SVC_Table", ARRAY_SIZE(SVC_Table), SVC_Table);
+Common::Profiling::TimingCategory profiler_svc("SVC Calls");
+
+static const FunctionDef* GetSVCInfo(u32 opcode) {
+    u32 func_num = opcode & 0xFFFFFF; // 8 bits
+    if (func_num >= ARRAY_SIZE(SVC_Table)) {
+        LOG_ERROR(Kernel_SVC, "unknown svc=0x%02X", func_num);
+        return nullptr;
+    }
+    return &SVC_Table[func_num];
+}
+
+void CallSVC(u32 opcode) {
+    Common::Profiling::ScopeTimer timer_svc(profiler_svc);
+
+    const FunctionDef *info = GetSVCInfo(opcode);
+    if (info) {
+        if (info->func) {
+            info->func();
+        } else {
+            LOG_ERROR(Kernel_SVC, "unimplemented SVC function %s(..)", info->name);
+        }
+    }
 }
 
 } // namespace

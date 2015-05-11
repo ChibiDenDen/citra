@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include "common/common_types.h"
+#include "common/logging/log.h"
 
 #include "core/core.h"
 #include "core/core_timing.h"
@@ -59,10 +60,6 @@ void Stop() {
 int Init() {
     g_sys_core = new ARM_DynCom(USER32MODE);
     g_app_core = new ARM_DynCom(USER32MODE);
-
-    // TODO: Whenever TLS is implemented, this should contain
-    // the address of the 0x200-byte TLS
-    g_app_core->SetCP15Register(CP15_THREAD_URO, Memory::KERNEL_MEMORY_VADDR);
 
     LOG_DEBUG(Core, "Initialized OK");
     return 0;

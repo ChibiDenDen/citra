@@ -6,7 +6,9 @@
 #include <list>
 #include <vector>
 
-#include "common/common.h"
+#include "common/assert.h"
+#include "common/common_types.h"
+#include "common/logging/log.h"
 #include "common/math_util.h"
 #include "common/thread_queue_list.h"
 
@@ -23,7 +25,7 @@
 namespace Kernel {
 
 /// Event type for the thread wake up event
-static int ThreadWakeupEventType = -1;
+static int ThreadWakeupEventType;
 
 bool Thread::ShouldWait() {
     return status != THREADSTATUS_DEAD;
@@ -42,7 +44,7 @@ static Common::ThreadQueueList<Thread*, THREADPRIO_LOWEST+1> ready_queue;
 static Thread* current_thread;
 
 // The first available thread id at startup
-static u32 next_thread_id = 1;
+static u32 next_thread_id;
 
 /**
  * Creates a new thread ID
@@ -195,6 +197,7 @@ static void SwitchContext(Thread* new_thread) {
         new_thread->current_priority = new_thread->nominal_priority;
 
         Core::g_app_core->LoadContext(new_thread->context);
+        Core::g_app_core->SetCP15Register(CP15_THREAD_URO, new_thread->GetTLSAddress());
     } else {
         current_thread = nullptr;
     }
@@ -400,6 +403,12 @@ ResultVal<SharedPtr<Thread>> Thread::Create(std::string name, VAddr entry_point,
     thread->name = std::move(name);
     thread->callback_handle = wakeup_callback_handle_table.Create(thread).MoveFrom();
 
+    VAddr tls_address = Memory::TLS_AREA_VADDR + (thread->thread_id - 1) * 0x200;
+
+    ASSERT_MSG(tls_address < Memory::TLS_AREA_VADDR_END, "Too many threads");
+
+    thread->tls_address = tls_address;
+
     // TODO(peachum): move to ScheduleThread() when scheduler is added so selected core is used
     // to initialize the context
     Core::g_app_core->ResetContext(thread->context, stack_top, entry_point, arg);
@@ -441,19 +450,20 @@ void Thread::BoostPriority(s32 priority) {
 
 SharedPtr<Thread> SetupIdleThread() {
     // We need to pass a few valid values to get around parameter checking in Thread::Create.
-    auto thread = Thread::Create("idle", Memory::KERNEL_MEMORY_VADDR, THREADPRIO_LOWEST, 0,
+    // TODO(yuriks): Figure out a way to avoid passing the bogus VAddr parameter
+    auto thread = Thread::Create("idle", Memory::TLS_AREA_VADDR, THREADPRIO_LOWEST, 0,
             THREADPROCESSORID_0, 0).MoveFrom();
 
     thread->idle = true;
     return thread;
 }
 
-SharedPtr<Thread> SetupMainThread(u32 stack_size, u32 entry_point, s32 priority) {
+SharedPtr<Thread> SetupMainThread(u32 entry_point, s32 priority) {
     DEBUG_ASSERT(!GetCurrentThread());
 
     // Initialize new "main" thread
     auto thread_res = Thread::Create("main", entry_point, priority, 0,
-            THREADPROCESSORID_0, Memory::SCRATCHPAD_VADDR_END);
+            THREADPROCESSORID_0, Memory::HEAP_VADDR_END);
 
     SharedPtr<Thread> thread = thread_res.MoveFrom();
 
@@ -492,10 +502,20 @@ void Thread::SetWaitSynchronizationOutput(s32 output) {
     context.cpu_registers[1] = output;
 }
 
+VAddr Thread::GetTLSAddress() const {
+    return tls_address;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void ThreadingInit() {
     ThreadWakeupEventType = CoreTiming::RegisterEvent("ThreadWakeupCallback", ThreadWakeupCallback);
+
+    current_thread = nullptr;
+    next_thread_id = 1;
+
+    thread_list.clear();
+    ready_queue.clear();
 
     // Setup the idle thread
     SetupIdleThread();
